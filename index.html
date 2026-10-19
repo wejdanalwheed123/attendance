@@ -750,9 +750,22 @@ function printMonthTally(mk){
       </div>`;
   }).join('');
   const totalAbsences = Object.values(absMap).length;
+  const disciplined = computeDisciplined(days);
+  const disciplinedByClass = {};
+  disciplined.forEach(s=>{ (disciplinedByClass[s.cls]=disciplinedByClass[s.cls]||[]).push(s.name); });
+  const disciplinedHtml = Object.keys(disciplinedByClass).length ? `
+    <div style="margin-top:24px; break-inside:avoid;">
+      <div style="font-weight:900; font-size:15px; color:#1F4E42; margin-bottom:10px;">✅ المنضبطات هذا الشهر — بدون غياب (${disciplined.length})</div>
+      ${Object.keys(disciplinedByClass).map(cls=>`
+        <div style="margin-bottom:10px; break-inside:avoid;">
+          <div style="font-weight:700; font-size:13px; color:var(--teal-deep); margin-bottom:4px;">▪️ ${escapeHtml(cls)} (${disciplinedByClass[cls].length})</div>
+          <div style="font-size:12.5px; color:var(--ink-soft); line-height:1.9;">${disciplinedByClass[cls].map(n=>escapeHtml(n)).join('، ')}</div>
+        </div>`).join('')}
+    </div>` : '';
   const html = `
     <div style="margin-bottom:16px; font-size:13px; color:var(--ink-soft);">عدد الطالبات اللي عليهن غياب هذا الشهر: ${totalAbsences}</div>
-    ${sections || '<div class="empty-state">لا يوجد غياب مسجل هذا الشهر.</div>'}`;
+    ${sections || '<div class="empty-state">لا يوجد غياب مسجل هذا الشهر.</div>'}
+    ${disciplinedHtml}`;
   printSingleBlock(html, 'تقرير حصر الغياب الشهري — '+monthLabel(days[0].date));
 }
 

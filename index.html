@@ -74,8 +74,12 @@
   .empty-state{padding:20px; text-align:center; color:var(--ink-soft); font-size:13px;}
   .top-add{display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;}
 
+  .status-pill{display:inline-block; padding:3px 13px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;}
+  .status-pill.absent{background:#FBE1E1; color:#A5342A; border:1px solid #EFB7B2;}
+
   #printAllContainer{display:none;}
   @media print{
+    *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     body{background:#fff;}
     header.top{background:#fff !important; color:#1F2A24 !important;}
     header.top::after{display:none;}
@@ -88,6 +92,13 @@
     body.printing-all #printAllContainer{display:block;}
     #printAllContainer{padding:16px;}
     #printAllContainer h2.print-h{font-size:20px; border-bottom:2px solid #1F4E42; padding-bottom:8px; margin-bottom:14px;}
+    #printAllContainer .day-card{border:1px solid #DCE3D8; border-radius:12px; margin-bottom:16px; padding:12px 14px; break-inside:avoid;}
+    #printAllContainer .day-title{color:#1F4E42; font-size:15px;}
+    #printAllContainer table.entries-table{width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;}
+    #printAllContainer table.entries-table thead th{background:#1F4E42 !important; color:#fff !important; font-weight:700; padding:9px 10px; border:1px solid #1F4E42;}
+    #printAllContainer table.entries-table td{padding:8px 10px; border:1px solid #D6DBD1;}
+    #printAllContainer table.entries-table tbody tr:nth-child(even) td{background:#F0F4F0 !important;}
+    #printAllContainer .month-group-head h2{color:#1F4E42;}
   }
 </style>
 </head>
@@ -105,8 +116,10 @@
     </div>
     <div class="top-actions">
       <button onclick="exportBackup()">⬇️ تصدير نسخة احتياطية</button>
-      <button onclick="document.getElementById('importFile').click()">⬆️ استيراد</button>
+      <button onclick="document.getElementById('importFile').click()">⬆️ استيراد (استبدال كامل)</button>
       <input type="file" id="importFile" accept="application/json" style="display:none;" onchange="importBackup(this.files)">
+      <button onclick="document.getElementById('mergeFile').click()">🔗 دمج نسخة زميلة</button>
+      <input type="file" id="mergeFile" accept="application/json" style="display:none;" onchange="mergeImportDays(this.files)">
     </div>
   </div>
 </header>
@@ -120,6 +133,16 @@
       </div>
       <button class="btn btn-primary" onclick="addDay()">+ إضافة يوم</button>
     </div>
+    <details style="margin-top:14px; padding-top:14px; border-top:1px dashed var(--line);">
+      <summary style="cursor:pointer; font-weight:700; font-size:13px; color:var(--teal-deep);">📋 استيراد من "نسخ التقرير" (موقع زميلتي)</summary>
+      <div style="margin-top:10px;">
+        <div class="field">
+          <label>الصقي هنا النص الناتج من زر "نسخ التقرير"</label>
+          <textarea id="friendReportText" style="width:100%; min-height:110px; border:1px solid var(--line); border-radius:9px; padding:8px 11px; font-family:inherit; font-size:13px; background:var(--paper-2);" placeholder="المدارس السعودية - الدبلوما الأمريكي&#10;تقرير الحضور والغياب اليومي&#10;الأحد، ١٨ أكتوبر، ٢٠٢٦&#10;..."></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="importFriendReportText()">📥 استيراد الغائبات لهذا اليوم</button>
+      </div>
+    </details>
   </div>
 
   <div id="daysContainer"></div>
@@ -132,31 +155,29 @@ const STORE_KEY = 'attendance-absences-v1';
 
 const DEFAULT_ROSTER = {
   "الصف الأول الابتدائي": ["لي تشي تشانغ","أريج منصور حمود العنزي","العنود سلطان فراج السبيعي","العنود معيذر عبدالله القحطاني","الهنوف مشاري حمد الدوسري","الين متعب عبدالله العنزي","توق متعب خالد العنزي","دانة عبدالاله منور السلمي","دانة ماجد الدوسري","مسك صالح راشد العنزي","مالك محمد ضاحي العنزي","ميار ندى عمير الشمري","هناي سعد سلمان العنزي"],
-  "الصف الثاني الابتدائي": ["اثير عبدالكريم عويد المطيري","الجوهرة ماجد حمد الدوسري","العنود فيصل عبدالعزيز الغامدي","الهنوف احمد مسفر الغبيوي","جود احمد هجاج محمد","ريما بندر رواف العنزي","غرام سامي سعد سفر الغامدي","غزل عمر محمد العنزي","في عبدالله مضحي الشهري","لانا مشوح مانع العنزي","لينا طارق عقيل الزهراني","ميليا طالل سعد القحطاني","هناي محمد ركيان العنزي","هنوف ناصر محمد الشهري"],
-  "الصف الثالث الابتدائي": ["حنين عبدالله ربيع العنزي","خزامى عبدالرحمن علي الخطيب","دالي سلطان حمد الدوسري","ديم ثنيان خليف العنزي","ريم ممدوح بريت الشمري","ريم منصور ابراهيم الكنعاني","سحاب عبدالعزيز سعود الحربي","سحاب عبدالله فهاد البقمي","سما ثنيان خليف العنزي","سما سطام هادي المطيري","شهد عبدالرحمن حمد العنزي","شوق محمد حامد الشهري","عائشه خالد بستان العنزي","غلا عمر محمد العنزي","فاطمة مشعل مفضي العنزي","فرح ناصر محمد العميم","هدى منصور حسين العنزي","هنا وائل محمد عوض","هيله حسام محمد صالح العيد","وتين ثامر عبيد العنزي"],
+  "الصف الثاني الابتدائي": ["اثير عبدالكريم عويد المطيري","الجوهرة ماجد حمد الدوسري","العنود فيصل عبدالعزيز الغامدي","الهنوف احمد مسفر الغبيوي","جود احمد هجاج محمد","ريما بندر رواف العنزي","غرام سامي سعد سفر الغامدي","غزل عمر محمد العنزي","في عبدالله مضحي الشهري","النا مشوح مانع العنزي","لينا طارق عقيل الزهراني","ميليا طالل سعد القحطاني","هناي محمد ركيان العنزي","هنوف ناصر محمد الشهري"],
+  "الصف الثالث الابتدائي": ["حنين عبدالله ربيع العنزي","خزامى عبدالرحمن علي الخطيب","دالي سلطان حمد الدوسري","ديم ثنيان خليف العنزي","ريم ممدوح بريت الشمري","ريم منصور ابراهيم الكنعاني","سحاب عبدالعزيز سعود الحربي","سحاب عبدالله فهاد البقمي","سما ثنيان خليف العنزي","سما سطام هادي المطيري","شهد عبدالرحمن حمد العنزي","شوق محمد حامد الشهري","عائشه خالد بستان العنزي","غال عمر محمد العنزي","فاطمة مشعل مفضي العنزي","فرح ناصر محمد العميم","هدى منصور حسين العنزي","هيله حسام محمد صالح العيد","وتين ثامر عبيد العنزي"],
   "الصف الرابع الابتدائي": ["أسماء منصور محمد آل قريش","ألين عماد فرحان العنزي","العنود راشد ملفي الدوسري","اوركيد خالد عبدالله الخميس","ترف ناصر محمد سمران المطيري","ريما محمد مطران الشمري","ريما مهنا عبدالرزاق العنزي","ساره فيصل عبدالعزيز الغامدي","سحاب محمد ضاحي العنزي","سعاد إبراهيم سعد الداود","سمو ناصر عبدالله الاسمري","شموخ عبدالعزيز سعود الحربي","فلوه ابراهيم خالد القوسي","لدن احمد محمد وران العنزي","لين احمد هجاج محمد","نوف محمد سعود محمد الزيد"],
-  "الصف الخامس الابتدائي": ["الوتين سعيد محمد حامد الغامدي","ايلين عيسى ابراهيم فرحان","جود خلف علي العنزي","جود مفلح حامد السلمي","حور تركي حمد الحازمي","حور عبدالله محمد الشهري","دانا محمد سارح العسيري","دانة حمود حمد الرشيدي","دانه سليم حامد السرهيد","ديالا علي محمد الشهري","رفا عبدالعزيز علي الالمعي","عيدة عبدالله فهاد البقمي","فرح حمود خليل حمود الحمزة","لمى بندر رواف العنزي","ملاذ محمود مضحي العنزي","وجد يوسف صالح ساير العنزي"],
-  "الصف السادس الابتدائي": ["الجوهرة نايف جهجاه الطيار","الريم فهد ناصر الصنيدح","الهنوف بندر مذكر الربوب الرويس","ترف فهد عوض المطيري","حور راشد ملفي الدوسري","حور عبدالمجيد تركي العنزي","دانه فيصل فداع شريم","زينة وائل محمد عوض","سارة وائل محمد الفالح","كيان صالح عبدالله القرني","لمار عيسى عبدالله المطيري","مسك مبارك سلطان العتيبي","منيرة جابر سعود العتيبي"],
+  "الصف الخامس الابتدائي": ["الوتين سعيد محمد حامد الغامدي","ايلين عيسى ابراهيم فرحان","جود خلف علي العنزي","جود مفلح حامد السلمي","حور تركي حمد الحازمي","حور عبدالله محمد الشهري","دانا محمد سارح العسيري","دانة حمود حمد الرشيدي","دانه سليم حامد السرهيد","ديالا علي محمد الشهري","رفا عبدالعزيز علي الالمعي","عيدة عبدالله فهاد البقمي","فرح حمود خليل حمود الحمزة","لمى بندر رواف العنزي","مالذ محمود مضحي العنزي","وجد يوسف صالح ساير العنزي"],
+  "الصف السادس الابتدائي": ["الجوهرة نايف جهجاه الطيار","الريم فهد ناصر الصنيدح","الهنوف بندر مذكر الربوب الرويس","ترف فهد عوض المطيري","حور راشد ملفي الدوسري","حور عبدالمجيد تركي العنزي","دانه فيصل فداع شريم","سارة وائل محمد الفالح","كيان صالح عبدالله القرني","لمار عيسى عبدالله المطيري","مسك مبارك سلطان العتيبي","منيرة جابر سعود العتيبي"],
   "الصف الأول المتوسط": ["الجوهره محمد عبدالعزيز العيد","تسي هوا تشن","روبين صالح محمد الشهري","لمى احمد المعيلي","ليندا مهنا عبدالرزاق العنزي","موضي إبراهيم سعد الداود","منيرة عبدالله سالم اللحيدان","منيرة المقاطي","نوره عبدالله بن عبدالعزيز الهداب"],
-  "الصف الثاني المتوسط": ["الجوهره سامي سعد سفر الغامدي","الماسة عبداللطيف صالح الصالح","داليا عماد فرحان العنزي","دانه حمد سالم الدوسري","درة فهد ناصر الصنيدح","درر راقي عبدالله الراقي","ديم عبدالله محمد الشهري","ريما فيصل معند العنزي","ريمان ناصر عبدالله الاسمري","شيهانه سعد عبدالغني الشمراني","غنى منصور حسين العنزي","غزل عبداللطيف ربيع العنزي","كادي صالح عبدالله القرني","النا مهنا عبدالرزاق العنزي","ميلان عبدالمجيد تركي العنزي","وتين عبدالله صخيل الشمري"],
-  "الصف الثالث المتوسط": ["تالا سهيل عبدالله الحديثي","جود عبدالحكيم منصور الكامل","جودي مهنا سالم العنزي","ريسان احمد العنزي","سلمى وائل محمد عوض","طرفة عبدالله سالم اللحيدان","عالية عماد فرحان العنزي","غزل سعود برجس العنزي","ميهاف ناصر محمد العميم"],
-  "الصف الأول الثانوي": ["العنود رياض احمد الفريح","دانة فهد الحربي","ريتال خالد حمدان العنزي","ريفال خالد حمدان العنزي","سدن خالد فرحة الغامدي","شهد صالح محمد الشهري","ضي عبدالله مضحي الشهري","كيان محمود بستان العنزي","لتين مفضي عوض العنزي"]
+  "الصف الثاني المتوسط": ["الجوهره سامي سعد سفر الغامدي","داليا عماد فرحان العنزي","دانه حمد سالم الدوسري","درة فهد ناصر الصنيدح","درر راقي عبدالله الراقي","ديم عبدالله محمد الشهري","ريما فيصل معند العنزي","ريمان ناصر عبدالله الاسمري","شيهانه سعد عبدالغني الشمراني","غنى منصور حسين العنزي","غزل عبداللطيف ربيع العنزي","كادي صالح عبدالله القرني","النا مهنا عبدالرزاق العنزي","ميلان عبدالمجيد تركي العنزي","وتين عبدالله صخيل الشمري"],
+  "الصف الثالث المتوسط": ["بسمة عبدالعزيز عماش العنزي","تالا سهيل عبدالله الحديثي","جود عبدالحكيم منصور الكامل","جودي مهنا سالم العنزي","ريسان احمد العنزي","طرفة عبدالله سالم اللحيدان","عالية عماد فرحان العنزي","غزل سعود برجس العنزي","ميهاف ناصر محمد العميم"],
+  "الصف الأول الثانوي": ["العنود رياض احمد الفريح","ريتال خالد حمدان العنزي","ريفال خالد حمدان العنزي","سدن خالد فرحة الغامدي","شهد صالح محمد الشهري","ضي عبدالله مضحي الشهري","كيان محمود بستان العنزي","لتين مفضي عوض العنزي"]
 };
 
 let DATA = { days: [], roster: JSON.parse(JSON.stringify(DEFAULT_ROSTER)) }; // {id, date, entries:[{id,name,cls}]}
 let openDays = new Set(); // day ids currently expanded
-let openStats = new Set(); // month keys with stats table expanded
-let closedMonths = new Set(); // month keys the user explicitly collapsed
 
 function uid(){ return Math.random().toString(36).slice(2,10); }
 function escapeHtml(str){ const d = document.createElement('div'); d.textContent = str||''; return d.innerHTML; }
 function formatDate(iso){
   if(!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleDateString('ar-SA-u-ca-gregory', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+  return d.toLocaleDateString('ar-SA', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
 }
 function monthKey(iso){ const d = new Date(iso); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
-function monthLabel(iso){ const d = new Date(iso); return d.toLocaleDateString('ar-SA-u-ca-gregory', {month:'long', year:'numeric'}); }
+function monthLabel(iso){ const d = new Date(iso); return d.toLocaleDateString('ar-SA', {month:'long', year:'numeric'}); }
 
 function loadData(){
   try{
@@ -164,7 +185,7 @@ function loadData(){
     if(raw){
       const parsed = JSON.parse(raw);
       DATA.days = parsed.days || [];
-      DATA.roster = JSON.parse(JSON.stringify(DEFAULT_ROSTER));
+      DATA.roster = parsed.roster || JSON.parse(JSON.stringify(DEFAULT_ROSTER));
     }
   }catch(e){}
 }
@@ -205,6 +226,116 @@ function importBackup(files){
     }
   };
   reader.readAsText(files[0]);
+}
+
+function mergeImportDays(files){
+  if(!files || !files[0]) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const parsed = JSON.parse(e.target.result);
+      if(!parsed || !Array.isArray(parsed.days)) throw new Error('bad format');
+      let addedDays = 0, addedEntries = 0;
+      parsed.days.forEach(incomingDay=>{
+        if(!incomingDay.date) return;
+        let day = DATA.days.find(d=> d.date === incomingDay.date);
+        if(!day){
+          day = {id:uid(), date:incomingDay.date, entries:[]};
+          DATA.days.push(day);
+          addedDays++;
+        }
+        const existingKeys = new Set(day.entries.map(en=> en.name+'|'+(en.cls||'')));
+        (incomingDay.entries||[]).forEach(en=>{
+          const k = (en.name||'')+'|'+(en.cls||'');
+          if(en.name && !existingKeys.has(k)){
+            day.entries.push({id:uid(), name:en.name, cls:en.cls||''});
+            existingKeys.add(k);
+            addedEntries++;
+          }
+        });
+      });
+      saveData();
+      render();
+      alert('تم الدمج بنجاح: أُضيف '+addedEntries+' اسم، في '+addedDays+' يوم جديد لم يكن موجوداً عندك. بياناتك الأصلية ما تأثرت.');
+    }catch(err){
+      alert('تعذر قراءة الملف. استخدمي ملف "تصدير نسخة احتياطية" الصادر من موقع زميلتك (نفس الموقع).');
+    }
+  };
+  reader.readAsText(files[0]);
+}
+
+const ARABIC_MONTHS = {'يناير':1,'فبراير':2,'مارس':3,'أبريل':4,'إبريل':4,'مايو':5,'يونيو':6,'يوليو':7,'أغسطس':8,'سبتمبر':9,'أكتوبر':10,'نوفمبر':11,'ديسمبر':12};
+const FRIEND_CLASS_MAP = {
+  'الصف الأول':'الصف الأول الابتدائي',
+  'الصف الثاني':'الصف الثاني الابتدائي',
+  'الصف الثالث':'الصف الثالث الابتدائي',
+  'الصف الرابع':'الصف الرابع الابتدائي',
+  'الصف الخامس':'الصف الخامس الابتدائي',
+  'الصف السادس':'الصف السادس الابتدائي',
+  'الصف الأول المتوسط':'الصف الأول المتوسط',
+  'الصف الثاني المتوسط':'الصف الثاني المتوسط',
+  'الصف الثالث المتوسط':'الصف الثالث المتوسط',
+  'الصف الأول الثانوي':'الصف الأول الثانوي'
+};
+function arabicDigitsToEn(s){
+  const map = {'٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9'};
+  return String(s).replace(/[٠-٩]/g, d=>map[d]);
+}
+function parseFriendReportDate(text){
+  const lines = text.split('\n');
+  for(const line of lines){
+    const m = line.match(/،\s*([٠-٩0-9]{1,2})\s+([^،،\n]+?)\s*،\s*([٠-٩0-9]{4})/);
+    if(m){
+      const day = parseInt(arabicDigitsToEn(m[1]),10);
+      const monthName = m[2].trim();
+      const year = parseInt(arabicDigitsToEn(m[3]),10);
+      const monthNum = ARABIC_MONTHS[monthName];
+      if(monthNum && day && year){
+        return year+'-'+String(monthNum).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+      }
+    }
+  }
+  return null;
+}
+function parseFriendReportText(text){
+  const dateIso = parseFriendReportDate(text);
+  const entries = [];
+  const blockRegex = /▪️\s*([^\n]+)\n\s*الغائبات\s*\(([٠-٩0-9]+)\)\s*:\s*([^\n]*)/g;
+  let m;
+  while((m = blockRegex.exec(text))){
+    const rawCls = m[1].trim();
+    const count = parseInt(arabicDigitsToEn(m[2]),10);
+    const namesRaw = m[3].trim();
+    const cls = FRIEND_CLASS_MAP[rawCls] || rawCls;
+    if(count>0 && namesRaw && !/لا\s*يوجد/.test(namesRaw)){
+      const names = namesRaw.split(/[،,]/).map(s=>s.trim()).filter(Boolean);
+      names.forEach(n=> entries.push({name:n, cls}));
+    }
+  }
+  return { dateIso, entries };
+}
+function importFriendReportText(){
+  const text = document.getElementById('friendReportText').value;
+  if(!text.trim()){ alert('الصقي النص أولاً.'); return; }
+  const { dateIso, entries } = parseFriendReportText(text);
+  if(!dateIso){ alert('ما قدرت أحدد تاريخ اليوم من النص. تأكدي إنه النص كامل كما هو من زر "نسخ التقرير".'); return; }
+  if(entries.length===0 && !confirm('ما لقيت أي غائبات في النص (يوم '+dateIso+'). أكملي الاستيراد بدون غائبات؟')) return;
+  let day = DATA.days.find(d=> d.date === dateIso);
+  if(!day){ day = {id:uid(), date:dateIso, entries:[]}; DATA.days.push(day); }
+  const existingKeys = new Set(day.entries.map(e=> e.name+'|'+(e.cls||'')));
+  let added = 0;
+  entries.forEach(en=>{
+    const k = en.name+'|'+en.cls;
+    if(!existingKeys.has(k)){
+      day.entries.push({id:uid(), name:en.name, cls:en.cls});
+      existingKeys.add(k);
+      added++;
+    }
+  });
+  saveData();
+  render();
+  document.getElementById('friendReportText').value='';
+  alert('تم الاستيراد: أُضيف '+added+' اسم ليوم '+formatDate(dateIso)+'. بياناتك الأصلية ما تأثرت.');
 }
 
 function addDay(){
@@ -301,16 +432,17 @@ function addEntryFormHtml(dayId){
 
 function dayCardHtml(day, forPrint){
   const isOpen = forPrint ? true : openDays.has(day.id);
-  const rows = day.entries.length===0 ? `<tr><td colspan="${forPrint?2:3}" style="text-align:center; color:var(--ink-soft);">لا يوجد طالبات مسجلات</td></tr>` :
+  const rows = day.entries.length===0 ? `<tr><td colspan="${forPrint?3:4}" style="text-align:center; color:var(--ink-soft);">لا يوجد طالبات مسجلات</td></tr>` :
     day.entries.map(e=>`
       <tr>
         <td>${escapeHtml(e.name)}</td>
         <td>${escapeHtml(e.cls)}</td>
+        <td><span class="status-pill absent">غائبة</span></td>
         ${forPrint ? '' : `<td class="del"><button class="row-del" onclick="deleteEntry('${day.id}','${e.id}')">✕</button></td>`}
       </tr>`).join('');
   const bodyHtml = `
     <table class="entries-table">
-      <thead><tr><th>اسم الطالبة</th><th>الصف</th>${forPrint?'':'<th></th>'}</tr></thead>
+      <thead><tr><th>اسم الطالبة</th><th>الصف</th><th>الحالة</th>${forPrint?'':'<th></th>'}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
     ${forPrint ? '' : addEntryFormHtml(day.id)}
@@ -371,95 +503,83 @@ function repeatedAbsenceStats(){
 function monthFrequencyTable(groupDays){
   const map = {};
   groupDays.forEach(day=>{
-    const dayNum = new Date(day.date).getDate();
     day.entries.forEach(e=>{
-      if(!map[e.name]) map[e.name] = { cls: e.cls, count: 0, days: [] };
+      if(!map[e.name]) map[e.name] = { cls: e.cls, count: 0 };
       map[e.name].count++;
-      map[e.name].days.push(dayNum);
       if(e.cls) map[e.name].cls = e.cls;
     });
   });
-  const repeated = Object.entries(map);
+  const repeated = Object.entries(map).filter(([,v])=> v.count>1).sort((a,b)=> b[1].count-a[1].count);
   if(repeated.length===0) return '';
-  const byClass = {};
-  repeated.forEach(([name,v])=>{
-    const cls = v.cls || 'بدون صف محدد';
-    if(!byClass[cls]) byClass[cls] = [];
-    byClass[cls].push([name,v]);
-  });
-  const orderedClasses = [...Object.keys(DATA.roster).filter(c=>byClass[c]), ...(byClass['بدون صف محدد']?['بدون صف محدد']:[])];
-  return orderedClasses.map(cls=>{
-    const rows = byClass[cls].map(([name,v])=>`
-      <tr>
-        <td>${escapeHtml(name)}</td>
-        <td>${escapeHtml(v.cls||'')}</td>
-        <td>${v.count}</td>
-        <td>${v.days.sort((a,b)=>a-b).join('، ')}</td>
-      </tr>`).join('');
-    return `
-      <div style="margin-bottom:10px;">
-        <div style="font-size:12px; font-weight:700; color:var(--teal-deep); margin-bottom:4px;">${escapeHtml(cls)}</div>
-        <table class="entries-table">
-          <thead><tr><th>اسم الطالبة</th><th>الصف</th><th>عدد المرات</th><th>الأيام</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-  }).join('');
-}
-function renderStatsSection(mk, groupDays){
-  const tableHtml = monthFrequencyTable(groupDays);
-  if(!tableHtml) return '';
-  const isOpen = openStats.has(mk);
+  const rows = repeated.map(([name,v])=>`
+    <tr>
+      <td>${escapeHtml(name)}</td>
+      <td>${escapeHtml(v.cls||'')}</td>
+      <td>${v.count}</td>
+    </tr>`).join('');
   return `
     <div style="margin-bottom:14px;">
-      <div class="day-card-head" style="cursor:pointer; padding:0 0 6px;" onclick="toggleStats('${mk}')">
-        <span style="font-weight:700; font-size:13px; display:flex; align-items:center; gap:6px;"><span class="chev ${isOpen?'open':''}" style="font-size:11px;">▶</span> 📌 عدد المرات هذا الشهر</span>
-      </div>
-      ${isOpen ? tableHtml : ''}
+      <div style="font-weight:700; font-size:13px; margin-bottom:6px;">📌 عدد مرات الغياب هذا الشهر</div>
+      <table class="entries-table">
+        <thead><tr><th>اسم الطالبة</th><th>الصف</th><th>عدد المرات</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
     </div>`;
-}
-function toggleStats(mk){
-  if(openStats.has(mk)) openStats.delete(mk); else openStats.add(mk);
-  render();
-}
-function toggleMonth(mk){
-  if(closedMonths.has(mk)) closedMonths.delete(mk); else closedMonths.add(mk);
-  render();
 }
 
-function disciplinedTable(groupDays){
-  const absentNames = new Set();
-  groupDays.forEach(day=> day.entries.forEach(e=> absentNames.add(e.name)));
-  return Object.entries(DATA.roster).map(([cls, names])=>{
-    const remaining = names.filter(n=>!absentNames.has(n));
-    if(remaining.length===0) return '';
-    const trs = remaining.map(n=>`<tr><td>${escapeHtml(n)}</td><td>${escapeHtml(cls)}</td></tr>`).join('');
-    return `
-      <div style="margin-bottom:10px;">
-        <div style="font-size:12px; font-weight:700; color:var(--teal-deep); margin-bottom:4px;">${escapeHtml(cls)}</div>
-        <table class="entries-table"><thead><tr><th>اسم الطالبة</th><th>الصف</th></tr></thead><tbody>${trs}</tbody></table>
-      </div>`;
-  }).join('');
+function computeDisciplined(groupDays){
+  const absentSet = new Set();
+  groupDays.forEach(day=> day.entries.forEach(e=> absentSet.add(e.name+'|'+(e.cls||''))));
+  const result = [];
+  Object.keys(DATA.roster||{}).forEach(cls=>{
+    (DATA.roster[cls]||[]).forEach(name=>{
+      if(!absentSet.has(name+'|'+cls)) result.push({name, cls});
+    });
+  });
+  return result;
 }
-function renderDisciplinedSection(mk, groupDays){
-  const tableHtml = disciplinedTable(groupDays);
-  if(!tableHtml) return '';
-  const key = mk+'_disc';
-  const isOpen = openStats.has(key);
+
+function disciplinedTableHtml(groupDays){
+  const list = computeDisciplined(groupDays);
+  if(list.length===0) return '';
+  const byClass = {};
+  list.forEach(s=>{ (byClass[s.cls]=byClass[s.cls]||[]).push(s.name); });
+  const classesHtml = Object.keys(byClass).map(cls=>`
+    <div style="margin-bottom:8px;">
+      <div style="font-weight:700; font-size:12.5px; color:var(--teal-deep); margin-bottom:4px;">${escapeHtml(cls)} (${byClass[cls].length})</div>
+      <div style="font-size:12.5px; color:var(--ink-soft); line-height:1.9;">${byClass[cls].map(n=>escapeHtml(n)).join('، ')}</div>
+    </div>`).join('');
   return `
-    <div style="margin-bottom:14px;">
-      <div class="day-card-head" style="cursor:pointer; padding:0 0 6px;" onclick="toggleStats('${key}')">
-        <span style="font-weight:700; font-size:13px; display:flex; align-items:center; gap:6px;"><span class="chev ${isOpen?'open':''}" style="font-size:11px;">▶</span> ✅ المنضبطات (بدون غياب هذا الشهر)</span>
-      </div>
-      ${isOpen ? tableHtml : ''}
-    </div>`;
+    <details style="margin-bottom:14px;">
+      <summary style="cursor:pointer; font-weight:700; font-size:13px; color:var(--teal-deep);">✅ المنضبطات هذا الشهر — بدون غياب (${list.length})</summary>
+      <div style="margin-top:10px;">${classesHtml}</div>
+    </details>`;
+}
+
+function exportMonthTally(mk){
+  const days = DATA.days.filter(d=> monthKey(d.date)===mk).sort((a,b)=> new Date(a.date)-new Date(b.date));
+  if(days.length===0) return;
+  const absMap = {};
+  days.forEach(day=> day.entries.forEach(e=>{ absMap[e.name+'|'+(e.cls||'')] = {name:e.name, cls:e.cls}; }));
+  const absence = Object.values(absMap);
+  const disciplined = computeDisciplined(days);
+  const payload = { type:'attendance-month-tally', month:mk, monthLabel:monthLabel(days[0].date), absence, disciplined };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'حصر-غياب-'+mk+'.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function render(){
   const container = document.getElementById('daysContainer');
   const days = DATA.days.slice().sort((a,b)=> new Date(b.date)-new Date(a.date));
   if(days.length===0){
-    container.innerHTML = `<div class="card"><div class="empty-state">لا يوجد أيام مسجلة بعد. أضيفي يوماً من الأعلى.</div></div>`;
+    container.innerHTML = repeatedAbsenceStats() + `<div class="card"><div class="empty-state">لا يوجد أيام مسجلة بعد. أضيفي يوماً من الأعلى.</div></div>`;
     return;
   }
   const groups = {};
@@ -471,21 +591,21 @@ function render(){
   const monthKeys = Object.keys(groups).sort().reverse();
   const monthsHtml = monthKeys.map(mk=>{
     const groupDays = groups[mk];
-    const isOpen = !closedMonths.has(mk);
     return `
       <div class="card month-group">
-        <div class="month-group-head" style="cursor:pointer;" onclick="toggleMonth('${mk}')">
-          <h2><span class="chev ${isOpen?'open':''}" style="font-size:12px; margin-left:6px;">▶</span>🗓️ ${monthLabel(groupDays[0].date)}</h2>
-          <button class="btn btn-ghost" onclick="event.stopPropagation(); printMonth('${mk}')">🖨️ طباعة الشهر كامل</button>
+        <div class="month-group-head">
+          <h2>🗓️ ${monthLabel(groupDays[0].date)}</h2>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-ghost" onclick="printMonth('${mk}')">🖨️ طباعة الشهر كامل</button>
+            <button class="btn btn-ghost" onclick="exportMonthTally('${mk}')">📤 تصدير حصر الشهر</button>
+          </div>
         </div>
-        <div style="display:${isOpen?'block':'none'};">
-          ${renderStatsSection(mk, groupDays)}
-          ${renderDisciplinedSection(mk, groupDays)}
-          ${groupDays.map(d=>dayCardHtml(d,false)).join('')}
-        </div>
+        ${monthFrequencyTable(groupDays)}
+        ${disciplinedTableHtml(groupDays)}
+        ${groupDays.map(d=>dayCardHtml(d,false)).join('')}
       </div>`;
   }).join('');
-  container.innerHTML = monthsHtml;
+  container.innerHTML = repeatedAbsenceStats() + monthsHtml;
 }
 
 function printSingleBlock(html, title){
@@ -504,14 +624,7 @@ function printDay(dayId){
 function printMonth(mk){
   const days = DATA.days.filter(d=> monthKey(d.date)===mk).sort((a,b)=> new Date(a.date)-new Date(b.date));
   if(days.length===0) return;
-  const tableHtml = monthFrequencyTable(days);
-  const statsHtml = tableHtml ? `<div style="font-weight:700; font-size:13px; margin-bottom:6px;">📌 عدد مرات الغياب هذا الشهر</div>${tableHtml}` : '';
-  const discTableHtml = disciplinedTable(days);
-  const discHtml = discTableHtml ? `<div style="font-weight:700; font-size:13px; margin-bottom:6px;">✅ المنضبطات (بدون غياب هذا الشهر)</div>${discTableHtml}` : '';
-  const daysHtml = days.map(d=> dayCardHtml(d, true)).join('<hr style="border:none; border-top:1px dashed #D6DBD1; margin:18px 0;">');
-  const html = statsHtml + (statsHtml ? '<hr style="border:none; border-top:1px dashed #D6DBD1; margin:18px 0;">' : '')
-    + discHtml + (discHtml ? '<hr style="border:none; border-top:1px dashed #D6DBD1; margin:18px 0;">' : '')
-    + daysHtml;
+  const html = days.map(d=> dayCardHtml(d, true)).join('<hr style="border:none; border-top:1px dashed #D6DBD1; margin:18px 0;">');
   printSingleBlock(html, 'الطالبات المتغيبات — '+monthLabel(days[0].date));
 }
 

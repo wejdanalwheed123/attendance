@@ -732,22 +732,26 @@ function printMonthTally(mk){
   const days = DATA.days.filter(d=> monthKey(d.date)===mk).sort((a,b)=> new Date(a.date)-new Date(b.date));
   if(days.length===0) return;
   const absMap = {};
-  days.forEach(day=> day.entries.forEach(e=>{
-    const k = e.name+'|'+(e.cls||'');
-    if(!absMap[k]) absMap[k] = {name:e.name, cls:e.cls, count:0};
-    absMap[k].count++;
-  }));
+  days.forEach(day=>{
+    const dayNum = new Date(day.date).getDate();
+    day.entries.forEach(e=>{
+      const k = e.name+'|'+(e.cls||'');
+      if(!absMap[k]) absMap[k] = {name:e.name, cls:e.cls, count:0, days:[]};
+      absMap[k].count++;
+      absMap[k].days.push(dayNum);
+    });
+  });
   const byClass = {};
   Object.values(absMap).forEach(it=>{ (byClass[it.cls]=byClass[it.cls]||[]).push(it); });
   const classes = Object.keys(DATA.roster||{});
   const sections = classes.filter(c=> byClass[c] && byClass[c].length).map(c=>{
     const rows = byClass[c].sort((a,b)=> b.count-a.count).map(it=>`
-      <tr><td>${escapeHtml(it.name)}</td><td><span class="status-pill absent">غائبة (${it.count})</span></td></tr>`).join('');
+      <tr><td>${escapeHtml(it.name)}</td><td>${it.count}</td><td>${it.days.slice().sort((a,b)=>a-b).join('، ')}</td></tr>`).join('');
     return `
       <div style="margin-bottom:18px; break-inside:avoid;">
         <div style="font-weight:900; font-size:14px; color:#1F4E42; margin-bottom:6px;">▪️ ${escapeHtml(c)}</div>
         <table class="entries-table">
-          <thead><tr><th>اسم الطالبة</th><th>الحالة</th></tr></thead>
+          <thead><tr><th>اسم الطالبة</th><th>عدد المرات</th><th>التواريخ</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`;

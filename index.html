@@ -595,9 +595,11 @@ function repeatedAbsenceStats(){
 function monthFrequencyTable(groupDays){
   const map = {};
   groupDays.forEach(day=>{
+    const dayNum = new Date(day.date).getDate();
     day.entries.forEach(e=>{
-      if(!map[e.name]) map[e.name] = { cls: e.cls, count: 0 };
+      if(!map[e.name]) map[e.name] = { cls: e.cls, count: 0, days: [] };
       map[e.name].count++;
+      map[e.name].days.push(dayNum);
       if(e.cls) map[e.name].cls = e.cls;
     });
   });
@@ -608,12 +610,13 @@ function monthFrequencyTable(groupDays){
       <td>${escapeHtml(name)}</td>
       <td>${escapeHtml(v.cls||'')}</td>
       <td>${v.count}</td>
+      <td>${v.days.slice().sort((a,b)=>a-b).join('، ')}</td>
     </tr>`).join('');
   return `
     <details style="margin-bottom:14px;">
       <summary style="cursor:pointer; font-weight:700; font-size:13px;">📌 عدد مرات الغياب هذا الشهر (${repeated.length})</summary>
       <table class="entries-table" style="margin-top:10px;">
-        <thead><tr><th>اسم الطالبة</th><th>الصف</th><th>عدد المرات</th></tr></thead>
+        <thead><tr><th>اسم الطالبة</th><th>الصف</th><th>عدد المرات</th><th>التواريخ</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </details>`;
